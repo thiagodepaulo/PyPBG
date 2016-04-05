@@ -213,4 +213,5 @@ if __name__ == '__main__':
 	np.save(out+'/A', A)
 	print A
 	np.save(out+'/B', B)
+	print B
 
