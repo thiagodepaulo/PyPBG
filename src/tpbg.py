@@ -22,6 +22,7 @@ class TPBG(BaseEstimator, ClassifierMixin):
         self.global_threshold = global_threshold
         self.is_semisupervised = is_semisupervised
         self.feature_names = feature_names
+        self.is_fitted_ = False
 
     def local_propag(self, j):
         local_niter = 0
@@ -57,15 +58,23 @@ class TPBG(BaseEstimator, ClassifierMixin):
 
     def fit(self, X, y):
         X, y = check_X_y(X, y, accept_sparse=True)
-        self.classes, self.y = np.unique(y, return_inverse=True)
-        #if -1 in self.classes: y -= 1
+        self.unlabeled = (y == -1)
+        self.classes_, self.y = np.unique(y, return_inverse=True)
+        if -1 in self.classes_:
+            self.y = self.y - 1 # remove -1 index
+            self.classes_ = self.classes_[self.classes_ != -1]
+        
         self.X = X
         self.Xc = X.tocsc()
         self.ndocs, self.nwords = X.shape
-        self._init_matrices()
+        if not self.is_fitted_:
+            self._init_matrices()
         self.bgp()
         self.components_ = np.exp(self.log_B.T)
         self.is_fitted_ = True
+        # set the transduction item
+        transduction = self.classes_[np.argmax(self.log_A, axis=1)]
+        self.transduction_ = transduction.ravel()
         return self
 
     def transform(self, X):
@@ -86,8 +95,8 @@ class TPBG(BaseEstimator, ClassifierMixin):
         X = check_array(X, accept_sparse=True)
         check_is_fitted(self, 'is_fitted_')
         D = self.transform(X)
-        nclass = len(self.classes)        
-        return self.classes[np.argmax(D[:,:nclass], axis=1)]
+        nclass = len(self.classes_)
+        return self.classes_[np.argmax(D[:,:nclass], axis=1)]
 
     def bgp(self, labelled=None):
         global_niter = 0
@@ -95,14 +104,15 @@ class TPBG(BaseEstimator, ClassifierMixin):
             self.max = 1
             for j in tqdm(range(self.ndocs), ascii=True, desc=f'docs processed (itr {global_niter})'):
                 self.local_propag(j)
-                if self.classes[self.y[j]] != -1:
+                if not self.unlabeled[j]:
                     self.supress2(j)
             self.global_propag()
             global_niter += 1
             #self.print_top_topics()
 
     def supress2(self,j):
-        cls = self.classes[self.y[j]]
+        #cls = self.classes_[self.y[j]]
+        cls = self.classes_[self.y[j]]
         self.log_A[j].fill(np.log(self.alpha))
         self.log_A[j][cls] = np.max(self.log_A)
 

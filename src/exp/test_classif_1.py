@@ -14,13 +14,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.datasets import fetch_20newsgroups
 from sklearn.decomposition import NMF, LatentDirichletAllocation
-from sklearn.metrics import f1_score, confusion_matrix
+from sklearn.metrics import f1_score, confusion_matrix, classification_report
 
-#categories = ['alt.atheism', 'talk.religion.misc', 'comp.graphics', 'sci.space']
-newsgroups_train = fetch_20newsgroups(subset='train', remove=('headers','footers','quotes'))
-                                       #categories=categories)
-newsgroups_test = fetch_20newsgroups(subset='test', remove=('headers','footers','quotes'))
-                                       #categories=categories)
+categories = ['alt.atheism', 'comp.graphics', 'sci.space', 'talk.religion.misc']
+newsgroups_train = fetch_20newsgroups(subset='train', remove=('headers','footers','quotes')
+                                       , categories=categories)
+newsgroups_test = fetch_20newsgroups(subset='test', remove=('headers','footers','quotes')
+                                       , categories=categories)
 
 
 print('preprocessing...')
@@ -33,8 +33,8 @@ M = vectorizer.fit_transform(M)
 
 print('rodando TPBG...')
 
-pbg = TPBG(20, alpha=0.05, beta=0.001, local_max_itr=50, global_max_itr=2,
-            local_threshold = 1e-6, global_threshold = 1e-6, feature_names=vectorizer.get_feature_names())
+pbg = TPBG(4, alpha=0.005, beta=0.001, local_max_itr=50, global_max_itr=2,
+            local_threshold = 1e-2, global_threshold = 1e-6, feature_names=vectorizer.get_feature_names())
 pbg.fit(M, newsgroups_train.target)
 model = pbg
 #nmf = NMF(n_components=10, random_state=1, solver='mu').fit(M)
