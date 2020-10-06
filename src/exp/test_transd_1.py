@@ -71,5 +71,5 @@ print("Confusion matrix")
 print(cm)
 
 print(n_train, n_test)
-pbg.print_top_topics(lables_dict=dict(zip(labels_id,labels_names)))
+pbg.print_top_topics(labels_dict=dict(zip(labels_id,labels_names)))
 print('fim.')
