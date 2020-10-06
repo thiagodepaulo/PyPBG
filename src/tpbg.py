@@ -23,6 +23,8 @@ class TPBG(BaseEstimator, ClassifierMixin):
         self.is_semisupervised = is_semisupervised
         self.feature_names = feature_names
         self.is_fitted_ = False
+        self.map_class_ = {-1:-1} # key=class, value=index position
+        self.free_id = set(range(n_components)) # list of index position
 
     def local_propag(self, j):
         local_niter = 0
@@ -56,25 +58,32 @@ class TPBG(BaseEstimator, ClassifierMixin):
         self.log_A = np.log(np.random.dirichlet(np.ones(self.n_components), self.ndocs))
         self.log_B = np.log(np.random.dirichlet(np.ones(self.nwords), self.n_components).transpose())
 
+    def set_class(self, cls_id, pos_id):
+        self.free_id.remove(pos_id)
+        self.map_class_[cls_id] = pos_id
+
     def fit(self, X, y):
         X, y = check_X_y(X, y, accept_sparse=True)
         self.unlabeled = (y == -1)
-        self.classes_, self.y = np.unique(y, return_inverse=True)
-        if -1 in self.classes_:
-            self.y = self.y - 1 # remove -1 index
-            self.classes_ = self.classes_[self.classes_ != -1]
-        
+
         self.X = X
+        self.y = y
         self.Xc = X.tocsc()
         self.ndocs, self.nwords = X.shape
         if not self.is_fitted_:
             self._init_matrices()
+            # create map of
+            for cls_id in np.unique(y):
+                self.map_class_.setdefault(cls_id, self.free_id.pop() )
         self.bgp()
         self.components_ = np.exp(self.log_B.T)
         self.is_fitted_ = True
+
         # set the transduction item
-        transduction = self.classes_[np.argmax(self.log_A, axis=1)]
-        self.transduction_ = transduction.ravel()
+        self.inv_map_class_ = { v:k for k,v in self.map_class_.items() } # key=idx, value=class_id
+        self.transduction_ = np.array([self.inv_map_class_.get(idx,-1)
+                                    for idx in np.argmax(self.log_A, axis=1)])
+
         return self
 
     def transform(self, X):
@@ -95,8 +104,8 @@ class TPBG(BaseEstimator, ClassifierMixin):
         X = check_array(X, accept_sparse=True)
         check_is_fitted(self, 'is_fitted_')
         D = self.transform(X)
-        nclass = len(self.classes_)
-        return self.classes_[np.argmax(D[:,:nclass], axis=1)]
+        nclass = len(self.map_class_)-1
+        return np.array([self.inv_map_class_.get(idx,-1) for idx in np.argmax(D, axis=1)])
 
     def bgp(self, labelled=None):
         global_niter = 0
@@ -112,9 +121,10 @@ class TPBG(BaseEstimator, ClassifierMixin):
 
     def supress2(self,j):
         #cls = self.classes_[self.y[j]]
-        cls = self.classes_[self.y[j]]
+        # class id to index position
+        pos_id = self.map_class_[self.y[j]]
         self.log_A[j].fill(np.log(self.alpha))
-        self.log_A[j][cls] = np.max(self.log_A)
+        self.log_A[j][pos_id] = np.max(self.log_A)
 
     def supress(self,j):
         aux = self.log_A[j][self.y[j]]
@@ -122,9 +132,16 @@ class TPBG(BaseEstimator, ClassifierMixin):
         self.log_A[j][self.y[j]] = aux
 
 
-    def print_top_topics(self, n_top_words=10):
+    def print_top_topics(self, n_top_words=10, labels_dict=None):
         if self.feature_names == None:
             return
         for k, topic in enumerate(self.log_B.transpose()):
             l = [self.feature_names[i] for i in topic.argsort()[:-n_top_words - 1:-1]]
-            print(f'topic {k}:' + ', '.join(l))
+            if labels_dict is None or k not in labels_dict:
+                print(f'topic {k}: ' + ', '.join(l))
+            else:
+                cls_id = self.inv_map_class_[k]
+                print(f'topic {k} [{labels_dict[cls_id]}]: ' + ', '.join(l))
+
+
+#class ZPBG(TPBG):

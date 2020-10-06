@@ -18,12 +18,12 @@ from sklearn.metrics import f1_score, confusion_matrix, classification_report
 from sklearn.svm import SVC
 from sklearn.linear_model import SGDClassifier
 
-#categories = ['alt.atheism', 'talk.religion.misc',
-#               'comp.graphics', 'sci.space']
-newsgroups_train = fetch_20newsgroups(subset='train', remove=('headers','footers','quotes'))
-                                       #categories=categories)
-newsgroups_test = fetch_20newsgroups(subset='test', remove=('headers','footers','quotes'))
-                                       #categories=categories)
+categories = ['alt.atheism', 'talk.religion.misc',
+               'comp.graphics', 'sci.space']
+newsgroups_train = fetch_20newsgroups(subset='train', remove=('headers','footers','quotes')
+                                       , categories=categories)
+newsgroups_test = fetch_20newsgroups(subset='test', remove=('headers','footers','quotes')
+                                       , categories=categories)
 
 
 print('preprocessing...')
