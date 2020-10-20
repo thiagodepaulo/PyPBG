@@ -60,10 +60,6 @@ class TPBG(BaseEstimator, ClassifierMixin):
         self.log_B = np.log(np.random.dirichlet(
             np.ones(self.nwords), self.n_components).transpose())
 
-    def set_class(self, cls_id, pos_id):
-        self.free_id.remove(pos_id)
-        self.map_class_[cls_id] = pos_id
-
     def fit(self, X, y):
         X, y = check_X_y(X, y, accept_sparse=True)
         self.unlabeled = (y == -1)
@@ -107,8 +103,9 @@ class TPBG(BaseEstimator, ClassifierMixin):
         X = check_array(X, accept_sparse=True)
         check_is_fitted(self, 'is_fitted_')
         D = self.transform(X)
-        nclass = len(self.map_class_)-1
-        return np.array([self.inv_map_class_.get(idx, -1) for idx in np.argmax(D, axis=1)])
+        #nclass = len(self.map_class_)-1
+        return np.array([self.inv_map_class_.get(idx, -1)
+                         for idx in np.argmax(D, axis=1)])
 
     def bgp(self, labelled=None):
         global_niter = 0
@@ -134,17 +131,34 @@ class TPBG(BaseEstimator, ClassifierMixin):
         self.log_A[j].fill(np.log(self.alpha))
         self.log_A[j][self.y[j]] = aux
 
-    def print_top_topics(self, n_top_words=10, labels_dict=None):
-        if self.feature_names == None:
+    def print_top_topics(self, n_top_words=10, target_name=None):
+
+        if self.feature_names is None:
             return
         for k, topic in enumerate(self.log_B.transpose()):
-            l = [self.feature_names[i]
-                 for i in topic.argsort()[:-n_top_words - 1:-1]]
+            l_ = [self.feature_names[i]
+                  for i in topic.argsort()[:-n_top_words - 1: -1]]
             cls_id = self.inv_map_class_.get(k, -1)
-            if labels_dict is None:
-                print(f'topic {k}: ' + ', '.join(l))
+            if cls_id == -1 or target_name is None:
+                print(f'topic {k}: ' + ', '.join(l_))
             else:
-                print(f'topic {k} [{labels_dict[cls_id]}]: ' + ', '.join(l))
+                print(f'topic {k} [{target_name[cls_id]}]: ' + ', '.join(l_))
 
+    def get_topics(self, n_top_words=10):
+        l_topics = []
+        for topic in self.log_B.transpose():
+            l_ = [self.feature_names[i]
+                  for i in topic.argsort()[:-n_top_words - 1:-1]]
+            l_topics.append(l_)
+        return l_topics
 
-# class ZPBG(TPBG):
+    def get_selected_classes(self):
+        l_ = list(self.map_class_.keys())
+        if -1 in l_:
+            l_.remove(-1)
+        return l_
+
+    def set_class(self, cls_id, pos_id):
+        if cls_id not in self.map_class_:
+            self.free_id.remove(pos_id)
+            self.map_class_[cls_id] = pos_id

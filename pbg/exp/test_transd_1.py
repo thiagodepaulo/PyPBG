@@ -5,16 +5,13 @@ Created on Thu Jan 18 19:57:32 2018
 
 @author: thiagodepaulo
 """
-from sklearn.metrics import f1_score, confusion_matrix, classification_report
-from sklearn.decomposition import NMF, LatentDirichletAllocation
-from sklearn.datasets import fetch_20newsgroups
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.pipeline import Pipeline
-from ..util import Loader, SimplePreprocessing
-from ..tpbg import TPBG
+
+from pbg.util import SimplePreprocessing
+from pbg.tpbg import TPBG
 import numpy as np
-import logging
-import sys
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.datasets import fetch_20newsgroups
+from sklearn.metrics import f1_score, confusion_matrix, classification_report
 
 
 #categories = ['alt.atheism', 'talk.religion.misc', 'comp.graphics', 'sci.space']
@@ -53,7 +50,7 @@ M = vectorizer.fit_transform(M)
 print('rodando TPBG...')
 
 K = 20
-pbg = TPBG(K, alpha=0.005, beta=0.001, local_max_itr=50, global_max_itr=10,
+pbg = TPBG(K, alpha=0.005, beta=0.001, local_max_itr=50, global_max_itr=5,
            local_threshold=1e-6, global_threshold=1e-6, feature_names=vectorizer.get_feature_names())
 pbg.fit(M, semi_target)
 model = pbg
@@ -79,3 +76,5 @@ print(cm)
 print(n_train, n_test)
 pbg.print_top_topics(labels_dict=dict(zip(labels_id, labels_names)))
 print('fim.')
+
+####
