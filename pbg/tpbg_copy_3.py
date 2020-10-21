@@ -1,10 +1,12 @@
-# normalização do vetor A
-
+# Normaliza Aj e alteração do supress
 from sklearn.base import BaseEstimator, ClassifierMixin
 import numpy as np
+import time
 from tqdm import tqdm
+import logging
 from scipy.special import logsumexp
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+from sklearn.utils.multiclass import unique_labels
 
 
 class TPBG(BaseEstimator, ClassifierMixin):
@@ -124,7 +126,7 @@ class TPBG(BaseEstimator, ClassifierMixin):
         #cls = self.classes_[self.y[j]]
         # class id to index position
         pos_id = self.map_class_[self.y[j]]
-        self.log_A[j].fill(np.log(self.alpha))
+        # self.log_A[j].fill(np.log(self.alpha))
         self.log_A[j][pos_id] = np.max(self.log_A)
 
     def supress(self, j):
