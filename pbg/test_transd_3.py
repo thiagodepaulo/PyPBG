@@ -121,19 +121,21 @@ while i < n_class:
     pbg.set_class(cls_id, k)
     semi_target = create_semi_targets(
         pbg.get_selected_classes(), train_target, n_test)
-
-    print('rodando TPBG...')
-    pbg.fit(M, semi_target)
-
-    # test
-    unlabeled_set = np.argwhere(semi_target == -1).ravel()
-    predicted_labels = pbg.transduction_[unlabeled_set]
-    true_labels = [ul if ul in pbg.get_selected_classes() else -
-                   1 for ul in all_target[unlabeled_set]]
-
-    evaluate(pbg, true_labels, predicted_labels)
-
-    pbg.print_top_topics(target_name=newsgroups_train.target_names)
-    print(f'fim.{i}')
     i += 1
+
+
+pbg.print_top_topics(target_name=newsgroups_train.target_names)
+print('rodando TPBG...')
+pbg.fit(M, semi_target)
+
+# test
+unlabeled_set = np.argwhere(semi_target == -1).ravel()
+predicted_labels = pbg.transduction_[unlabeled_set]
+true_labels = [ul if ul in pbg.get_selected_classes() else -
+               1 for ul in all_target[unlabeled_set]]
+
+evaluate(pbg, true_labels, predicted_labels)
+
+pbg.print_top_topics(target_name=newsgroups_train.target_names)
+
 ####

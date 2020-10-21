@@ -1,3 +1,5 @@
+# normalização do vetor A
+
 from sklearn.base import BaseEstimator, ClassifierMixin
 import numpy as np
 from tqdm import tqdm
@@ -35,6 +37,8 @@ class TPBG(BaseEstimator, ClassifierMixin):
             log_C = log_Aj + log_Bw
             log_C = log_C - logsumexp(log_C, axis=1, keepdims=True)
             log_Aj = np.log(self.alpha + np.sum(np.exp(log_F + log_C), axis=0))
+            # normaliza Aj
+            log_Aj = log_Aj - logsumexp(log_Aj, axis=1, keepdims=True)
             mean_change = np.mean(abs(log_Aj - oldA_j))
             if mean_change <= self.local_threshold:
                 #print('convergiu itr %s' %local_niter)
