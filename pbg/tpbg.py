@@ -47,7 +47,8 @@ class TPBG(BaseEstimator, ClassifierMixin):
             log_F = np.log(self.X[docs, i].toarray())
             log_C = self.log_A[docs] + self.log_B[i]
             log_C = log_C - logsumexp(log_C, axis=1, keepdims=True)
-            self.log_B[i] = np.log(np.sum(np.exp(log_F + log_C), axis=0))
+            self.log_B[i] = logsumexp(log_F + log_C, axis=0)
+            #self.log_B[i] = np.log(np.sum(np.exp(log_F + log_C), axis=0))
         self.log_B = self.log_B - logsumexp(self.log_B, axis=0)
         self.log_B = np.log(self.beta + np.exp(self.log_B))
 

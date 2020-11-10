@@ -102,7 +102,6 @@ def evaluate(pbg, true_labels, predicted_labels):
 ## ITERATION ##########################################
 n_class = len(set(train_target))
 K = 20
-i = 0
 pbg = TPBG(K, alpha=0.005, beta=0.001, local_max_itr=50, global_max_itr=10,
            local_threshold=1e-6, global_threshold=1e-6,
            feature_names=vectorizer.get_feature_names())
@@ -113,6 +112,7 @@ print('rodando TPBG...')
 pbg.fit(M, semi_target)
 
 # %%
+i = 0
 while i < n_class:
 
     topics_list = pbg.get_topics()
