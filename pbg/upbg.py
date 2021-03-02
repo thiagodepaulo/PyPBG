@@ -24,6 +24,7 @@ class UPBG(BaseEstimator, ClassifierMixin):
         self.map_class_ = {-1: -1}  # key=class, value=index position
         self.free_id = set(range(n_components))  # list of index position
         self.map_word_class = {}  # dict of list of class, key=word_id, value=list of classes
+        self.save_interval = save_interval
 
     def local_propag(self, j):
         local_niter = 0
@@ -31,9 +32,10 @@ class UPBG(BaseEstimator, ClassifierMixin):
         log_F = np.log(self.X[j, words].toarray().T)
         log_Aj = self.log_A[j]
         log_Bw = self.log_B[words]  
-        pos_idx = -1 
-        if not self.unlabeled[j]:            
-            pos_idx = self.map_class_[self.y[j]]
+        if self.hasitr:
+            pos_idx = [self.map_class_[l] for l in self.y[j] if l != -1]
+        else:
+            pos_idx = self.map_class_[self.y[j]] if not self.unlabeled[j] else []
         while local_niter < self.local_max_itr:
             local_niter += 1
             oldA_j = log_Aj
@@ -52,8 +54,7 @@ class UPBG(BaseEstimator, ClassifierMixin):
         sup_log_C, inf_log_C = log_C[:,:self.n_class], log_C[:,self.n_class:] 
         if sup_log_C.shape[0] == 0:
             return log_C         
-        if pos_idx != -1:
-            # np.max(sup_log_C)
+        if pos_idx != []:            
             sup_log_C[:,pos_idx] = 0
         sup_log_C = sup_log_C - logsumexp(sup_log_C, axis=1, keepdims=True)
         inf_log_C = inf_log_C - logsumexp(inf_log_C, axis=1, keepdims=True)
@@ -93,7 +94,7 @@ class UPBG(BaseEstimator, ClassifierMixin):
     def fit(self, X, y):
         X, y = check_X_y(X, y, accept_sparse=True)
         self.unlabeled = (y == -1)
-
+        self.hasitr = hasattr(y[0], '__iter__') # has iterator for multilabel
         self.n_class = len(np.unique(y))
         self.X = X
         self.y = y
@@ -192,10 +193,12 @@ class UPBG(BaseEstimator, ClassifierMixin):
             else:
                 print(f'topic {k} [{target_name[cls_id]}]: ' + ', '.join(l_))
 
-    def get_topics(self, n_top_words=10):
+    def get_topics(self, n_top_words=10, feature_names=None):
+        if feature_names == None:
+            feature_names = self.feature_names        
         l_topics = []
         for topic in self.log_B.transpose():
-            l_ = [self.feature_names[i]
+            l_ = [feature_names[i]
                   for i in topic.argsort()[:-n_top_words - 1:-1]]
             l_topics.append(l_)
         return l_topics
