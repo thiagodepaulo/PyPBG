@@ -3,16 +3,13 @@ import numpy as np
 from tqdm import tqdm
 from scipy.special import logsumexp
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
-from numpy import logaddexp
-from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 
 
 class TPBG(BaseEstimator, ClassifierMixin):
 
     def __init__(self, n_components, alpha=0.05, beta=0.0001, local_max_itr=50,
                  global_max_itr=50, local_threshold=1e-6, global_threshold=1e-6,
-                 save_interval=-1, feature_names=None, target_name=None, silence=False,
-                 eval_func=None):
+                 save_interval=-1, is_semisupervised=True, feature_names=None):
         self.n_components = n_components
         self.alpha = alpha
         self.beta = beta
@@ -20,169 +17,130 @@ class TPBG(BaseEstimator, ClassifierMixin):
         self.global_max_itr = global_max_itr
         self.local_threshold = local_threshold
         self.global_threshold = global_threshold
+        self.is_semisupervised = is_semisupervised
         self.feature_names = feature_names
-
         self.is_fitted_ = False
         self.map_class_ = {-1: -1}  # key=class, value=index position
         self.free_id = set(range(n_components))  # list of index position
 
-        self.log_alpha = np.log(self.alpha)
-        self.log_beta = np.log(self.beta)
-        self.target_name = target_name
-        self.silence = silence
-        self.eval_func = eval_func
-
     def local_propag(self, j):
         local_niter = 0
         words = [x for x in self.X[j].nonzero()[1]]
-        if len(words) == 0:
-            return
         log_F = np.log(self.X[j, words].toarray().T)
         log_Aj = self.log_A[j]
         log_Bw = self.log_B[words]
-        log_F_C = None
         while local_niter < self.local_max_itr:
             local_niter += 1
             oldA_j = log_Aj
             log_C = log_Aj + log_Bw
             log_C = log_C - logsumexp(log_C, axis=1, keepdims=True)
-            log_F_C = log_F + log_C
-            logsumexp_F_C = logsumexp(log_F_C, axis=0, keepdims=True)
-            log_Aj = logaddexp(self.log_alpha, logsumexp_F_C)
+            log_Aj = np.log(self.alpha + np.sum(np.exp(log_F + log_C), axis=0))
             mean_change = np.mean(abs(log_Aj - oldA_j))
             if mean_change <= self.local_threshold:
                 #print('convergiu itr %s' %local_niter)
                 break
         self.log_A[j] = log_Aj
-        self.B2[words] += np.exp(log_F_C)
 
     def global_propag(self):
-        sum_columns = np.sum(self.B2, axis=0)
-        log_B_norm = np.log(self.B2) - np.log(sum_columns)
-        self.log_B = logaddexp(self.log_beta, log_B_norm)
-        self.B2 = np.zeros((self.nwords, self.n_components))
+        for i in tqdm(range(self.nwords), ascii=True, desc='global propagation:   '):
+            docs = [d for d in self.Xc[:, i].nonzero()[0]]
+            log_F = np.log(self.X[docs, i].toarray())
+            log_C = self.log_A[docs] + self.log_B[i]
+            log_C = log_C - logsumexp(log_C, axis=1, keepdims=True)
+            self.log_B[i] = logsumexp(log_F + log_C, axis=0)
+            #self.log_B[i] = np.log(np.sum(np.exp(log_F + log_C), axis=0))
+        self.log_B = self.log_B - logsumexp(self.log_B, axis=0)
+        self.log_B = np.log(self.beta + np.exp(self.log_B))
 
     def _init_matrices(self):
         self.log_A = np.log(np.random.dirichlet(
             np.ones(self.n_components), self.ndocs))
         self.log_B = np.log(np.random.dirichlet(
             np.ones(self.nwords), self.n_components).transpose())
-        self.B2 = np.zeros((self.nwords, self.n_components))
-
-    def _init_supervised_matrices(self):
-        self._init_matrices()
-        for j in range(self.ndocs):
-            if not self.unlabeled[j]:
-                self.suppress(j)
-        for i in tqdm(range(self.nwords), ascii=True, desc='initialing.[]:   '):
-            docs = [d for d in self.Xc[:, i].nonzero()[0]]
-            log_F = np.log(self.X[docs, i].toarray())
-            log_A_j = self.log_A[docs]
-            log_A_j = log_A_j - logsumexp(log_A_j, axis=1, keepdims=True)
-            self.log_B[i] = logsumexp(log_F + log_A_j, axis=0)
-        self.log_B = self.log_B - logsumexp(self.log_B, axis=0)
-        self.log_B = np.log(self.beta + np.exp(self.log_B))
 
     def fit(self, X, y):
-        self.is_multilabel = isinstance(y[0], list)
-        X, y = check_X_y(X, y, accept_sparse=True,
-                         multi_output=self.is_multilabel)
-        if self.is_multilabel:
-            self.unlabeled = [len(l) == 0 for l in y]
-        else:
-            self.unlabeled = (y == -1)
+        X, y = check_X_y(X, y, accept_sparse=True)
+        self.unlabeled = (y == -1)
 
         self.X = X
         self.y = y
         self.Xc = X.tocsc()
         self.ndocs, self.nwords = X.shape
-        flat_y = [v for l in self.y for v in l] if self.is_multilabel else y
         if not self.is_fitted_:
+            self._init_matrices()
             # create map of
-            for cls_id in np.unique(flat_y):
-                if cls_id != -1:
-                    self.map_class_.setdefault(cls_id, self.free_id.pop())
-            # self._init_matrices()
-            self._init_supervised_matrices()
+            for cls_id in np.unique(y):
+                self.map_class_.setdefault(cls_id, self.free_id.pop())
         self.bgp()
         self.components_ = np.exp(self.log_B.T)
         self.is_fitted_ = True
 
-        self.create_transduction
-
-        return self
-
-    def create_transduction(self):
         # set the transduction item
         # key=idx, value=class_id
         self.inv_map_class_ = {v: k for k, v in self.map_class_.items()}
         self.transduction_ = np.array([self.inv_map_class_.get(idx, -1)
                                        for idx in np.argmax(self.log_A, axis=1)])
 
+        return self
+
     def transform(self, X):
         if not self.X != X:
             return np.exp(self.log_A)
-        log_A_backup, X_backup, local_max_itr_backup = self.log_A, self.X, self.local_max_itr
+        log_A_back, X_back, local_max_itr_back = self.log_A, self.X, self.local_max_itr
         ndocs = X.shape[0]
         self.log_A = np.ones((ndocs, self.n_components))
         self.X = X
         self.local_max_itr = 1
         for j in range(ndocs):
             self.local_propag(j)
-        transformed_log_A = self.log_A
-        self.log_A, self.X, self.local_max_itr = log_A_backup, X_backup, local_max_itr_backup
-        return np.exp(transformed_log_A)
+        log_A_back = self.log_A
+        self.log_A, self.X, self.local_max_itr = log_A_back, X_back, local_max_itr_back
+        return np.exp(log_A_back)
 
     def predict(self, X):
         X = check_array(X, accept_sparse=True)
         check_is_fitted(self, 'is_fitted_')
         D = self.transform(X)
-        if self.is_multilabel:
-            return self._predict_multilabel(D)
-        else:
-            return self._predict_multiclass(D)
-
-    def _predict_multiclass(self, D):
+        #nclass = len(self.map_class_)-1
         return np.array([self.inv_map_class_.get(idx, -1)
                          for idx in np.argmax(D, axis=1)])
-
-    def _predict_multilabel(self, D):
-        return D
 
     def bgp(self, labelled=None):
         global_niter = 0
         while global_niter < self.global_max_itr:
             self.max = 1
-            for j in tqdm(range(self.ndocs), disable=self.silence, ascii=True, desc=f'docs processed (itr {global_niter})'):
+            for j in tqdm(range(self.ndocs), ascii=True, desc=f'docs processed (itr {global_niter})'):
                 self.local_propag(j)
                 if not self.unlabeled[j]:
-                    self.suppress(j)
+                    self.supress2(j)
             self.global_propag()
             global_niter += 1
-            if not self.silence:
-                self.print_top_topics()
-                if self.eval_func:
-                    self.eval_func(self)
+            # self.print_top_topics()
 
-    def suppress(self, j):
-        if self.is_multilabel:
-            pos_id = [self.map_class_[l] for l in self.y[j]]
-        else:
-            pos_id = self.map_class_[self.y[j]]
+    def supress2(self, j):
+        #cls = self.classes_[self.y[j]]
+        # class id to index position
+        pos_id = self.map_class_[self.y[j]]
         self.log_A[j].fill(np.log(self.alpha))
         self.log_A[j][pos_id] = np.max(self.log_A)
 
+    def supress(self, j):
+        aux = self.log_A[j][self.y[j]]
+        self.log_A[j].fill(np.log(self.alpha))
+        self.log_A[j][self.y[j]] = aux
+
     def print_top_topics(self, n_top_words=10, target_name=None):
+        self.inv_map_class_ = {v: k for k, v in self.map_class_.items()}
         if self.feature_names is None:
-            return None
-        if self.map_class_:
-            inv_map_class_ = {v: k for k, v in self.map_class_.items()}
+            return
         for k, topic in enumerate(self.log_B.transpose()):
             l_ = [self.feature_names[i]
                   for i in topic.argsort()[:-n_top_words - 1: -1]]
-            cls_id = inv_map_class_.get(k)
-            cls_name = self.target_name[cls_id] if cls_id is not None else 'None'
-            print(f'topic {k} [{ cls_name }] ' + ', '.join(l_))
+            cls_id = self.inv_map_class_.get(k, -1)
+            if cls_id == -1 or target_name is None:
+                print(f'topic {k}: ' + ', '.join(l_))
+            else:
+                print(f'topic {k} [{target_name[cls_id]}]: ' + ', '.join(l_))
 
     def get_topics(self, n_top_words=10):
         l_topics = []
@@ -191,3 +149,14 @@ class TPBG(BaseEstimator, ClassifierMixin):
                   for i in topic.argsort()[:-n_top_words - 1:-1]]
             l_topics.append(l_)
         return l_topics
+
+    def get_selected_classes(self):
+        l_ = list(self.map_class_.keys())
+        if -1 in l_:
+            l_.remove(-1)
+        return l_
+
+    def set_class(self, cls_id, pos_id):
+        if cls_id not in self.map_class_:
+            self.free_id.remove(pos_id)
+            self.map_class_[cls_id] = pos_id
