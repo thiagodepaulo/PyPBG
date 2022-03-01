@@ -1,10 +1,12 @@
 from sklearn.base import BaseEstimator, ClassifierMixin
 import numpy as np
 from tqdm import tqdm
+from tqdm.notebook import tqdm as tqdm_notebook
 from scipy.special import logsumexp
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from numpy import logaddexp
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
+from pbg.util import SemiLabelEncoder
 
 
 class TPBG(BaseEstimator, ClassifierMixin):
@@ -21,16 +23,14 @@ class TPBG(BaseEstimator, ClassifierMixin):
         self.local_threshold = local_threshold
         self.global_threshold = global_threshold
         self.feature_names = feature_names
-
         self.is_fitted_ = False
-        self.map_class_ = {-1: -1}  # key=class, value=index position
-        self.free_id = set(range(n_components))  # list of index position
-
         self.log_alpha = np.log(self.alpha)
         self.log_beta = np.log(self.beta)
         self.target_name = target_name
         self.silence = silence
         self.eval_func = eval_func
+        self.save_interval = save_interval
+        self.is_labeled = True
 
     def local_propag(self, j):
         local_niter = 0
@@ -70,53 +70,74 @@ class TPBG(BaseEstimator, ClassifierMixin):
         self.B2 = np.zeros((self.nwords, self.n_components))
 
     def _init_supervised_matrices(self):
+        print('oi')
         self._init_matrices()
         for j in range(self.ndocs):
             if not self.unlabeled[j]:
                 self.suppress(j)
-        for i in tqdm(range(self.nwords), ascii=True, desc='initialing.[]:   '):
-            docs = [d for d in self.Xc[:, i].nonzero()[0]]
+        for i in tqdm_notebook(range(self.nwords), ascii=True, desc='initialing.[]:   '):
+            docs = [d for d in self.X[:, i].nonzero()[0]]
+            # if word w_i not belong in train documents set X_train
+            if len(docs) == 0:
+                self.log_B[i] = np.ones(self.n_components)
+                continue
             log_F = np.log(self.X[docs, i].toarray())
             log_A_j = self.log_A[docs]
             log_A_j = log_A_j - logsumexp(log_A_j, axis=1, keepdims=True)
             self.log_B[i] = logsumexp(log_F + log_A_j, axis=0)
         self.log_B = self.log_B - logsumexp(self.log_B, axis=0)
         self.log_B = np.log(self.beta + np.exp(self.log_B))
+        self.print_top_topics()
 
-    def fit(self, X, y):
-        self.is_multilabel = isinstance(y[0], list)
+    def create_class_map(self, flat_y):
+        for cls_id in np.unique(flat_y):
+            if cls_id != -1:  # unlabeled flag
+                self.map_class_.setdefault(cls_id, self.free_id.pop())
+
+    def unsupervised_fit(self, X):
+        self.is_labeled = False
+        self.X = X
+        self.ndocs, self.nwords = X.shape
+        self.unlabeled = np.empty(self.ndocs)
+        self.unlabeled.fill(-1)
+
+        self._init_matrices()
+        self.bgp()
+        self.components_ = np.exp(self.log_B.T)
+        self.is_fitted_ = True
+
+        return self
+
+    def fit(self, X, y, one_class_name=None, one_class_idx=-1):
         X, y = check_X_y(X, y, accept_sparse=True,
-                         multi_output=self.is_multilabel)
-        if self.is_multilabel:
-            self.unlabeled = [len(l) == 0 for l in y]
-        else:
-            self.unlabeled = (y == -1)
+                         multi_output=False)
+        self.unlabeled = (y == -1)
+        self.is_labeled = True
 
         self.X = X
-        self.y = y
-        self.Xc = X.tocsc()
+        #flat_y = [v for l in self.y for v in l] if self.is_multilabel else y
+        flat_y = y
+        self.sle = SemiLabelEncoder(
+            one_class_name=one_class_name, one_class_idx=one_class_idx)
+        self.y = self.sle.fit_transform(flat_y)
+        self.inv_y = self.sle.inverse_transform(self.y)
+        #self.Xc = X.tocsc()
         self.ndocs, self.nwords = X.shape
-        flat_y = [v for l in self.y for v in l] if self.is_multilabel else y
+
         if not self.is_fitted_:
-            # create map of
-            for cls_id in np.unique(flat_y):
-                if cls_id != -1:
-                    self.map_class_.setdefault(cls_id, self.free_id.pop())
-            # self._init_matrices()
             self._init_supervised_matrices()
         self.bgp()
         self.components_ = np.exp(self.log_B.T)
         self.is_fitted_ = True
 
-        self.create_transduction
+        self.create_transduction()
 
         return self
 
     def create_transduction(self):
         # set the transduction item
         # key=idx, value=class_id
-        self.inv_map_class_ = {v: k for k, v in self.map_class_.items()}
-        self.transduction_ = np.array([self.inv_map_class_.get(idx, -1)
+        self.transduction_ = np.array([self.inv_y.get(idx, -1)
                                        for idx in np.argmax(self.log_A, axis=1)])
 
     def transform(self, X):
@@ -137,14 +158,10 @@ class TPBG(BaseEstimator, ClassifierMixin):
         X = check_array(X, accept_sparse=True)
         check_is_fitted(self, 'is_fitted_')
         D = self.transform(X)
-        if self.is_multilabel:
-            return self._predict_multilabel(D)
-        else:
-            return self._predict_multiclass(D)
+        return self._predict_multiclass(D)
 
     def _predict_multiclass(self, D):
-        return np.array([self.inv_map_class_.get(idx, -1)
-                         for idx in np.argmax(D, axis=1)])
+        return [self.inv_y.get(v, v) for v in np.argmax(D, axis=1)]
 
     def _predict_multilabel(self, D):
         return D
@@ -153,9 +170,9 @@ class TPBG(BaseEstimator, ClassifierMixin):
         global_niter = 0
         while global_niter < self.global_max_itr:
             self.max = 1
-            for j in tqdm(range(self.ndocs), disable=self.silence, ascii=True, desc=f'docs processed (itr {global_niter})'):
+            for j in tqdm_notebook(range(self.ndocs), disable=self.silence, ascii=True, desc=f'docs processed (itr {global_niter})'):
                 self.local_propag(j)
-                if not self.unlabeled[j]:
+                if self.is_labeled and not self.unlabeled[j]:
                     self.suppress(j)
             self.global_propag()
             global_niter += 1
@@ -165,23 +182,18 @@ class TPBG(BaseEstimator, ClassifierMixin):
                     self.eval_func(self)
 
     def suppress(self, j):
-        if self.is_multilabel:
-            pos_id = [self.map_class_[l] for l in self.y[j]]
-        else:
-            pos_id = self.map_class_[self.y[j]]
+        pos_id = self.y[j]
         self.log_A[j].fill(np.log(self.alpha))
         self.log_A[j][pos_id] = np.max(self.log_A)
 
     def print_top_topics(self, n_top_words=10, target_name=None):
         if self.feature_names is None:
             return None
-        if self.map_class_:
-            inv_map_class_ = {v: k for k, v in self.map_class_.items()}
         for k, topic in enumerate(self.log_B.transpose()):
             l_ = [self.feature_names[i]
                   for i in topic.argsort()[:-n_top_words - 1: -1]]
-            cls_id = inv_map_class_.get(k)
-            cls_name = self.target_name[cls_id] if cls_id is not None else 'None'
+            cls_id = self.inv_y.get(k, -1) if self.is_labeled else -1
+            cls_name = cls_id if cls_id != -1 else 'None'
             print(f'topic {k} [{ cls_name }] ' + ', '.join(l_))
 
     def get_topics(self, n_top_words=10):
