@@ -39,7 +39,7 @@ def eval_func(model):
     )
     print('\n'+report+'\n')
 
-    pos, neg = split_neg_pos(model.log_A, prob_topic_idx, p=0.9)
+    pos, neg = split_neg_pos(model.log_A, prob_topic_idx, p=1.0)
 
     clf = SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3,
                         random_state=42, max_iter=5, tol=None)
